@@ -16,53 +16,64 @@ main(int argc, char ** argv)
 {
   (void)argc;
   (void)argv;
-  // Use a small config for demo
-  // In a moderate setup the recommended numbers are 4096 for both
+  
+  // 使用小配置进行演示
+  // 在中等规模的设置中，建议两个参数都使用 4096
+  // 参数说明：数据库目录、块缓存大小(MB)、内存表大小(MB)、是否使用标签
   struct xdb * const xdb = remixdb_open("./xdbdemo", 256, 256, true); // blockcache=256MB, MemTable=256MB, use_tags=true
 
-  // A ref is required to perform the following DB operations.
-  // A thread should maintain a ref and keep using it.
-  // Different threads should use different refs.
+  // 需要一个 ref（引用）来执行以下数据库操作
+  // 一个线程应该维护一个 ref 并持续使用它
+  // 不同线程应该使用不同的 refs
   struct xdb_ref * const ref = remixdb_ref(xdb);
 
-  bool r;
+  bool r; // 操作结果标志
 
+  // 插入键值对操作
   r = remixdb_put(ref, "remix", 5, "easy", 4);
   printf("remixdb_put remix easy %c\n", r?'T':'F');
 
+  // 插入另一个键值对
   r = remixdb_put(ref, "time_travel", 11, "impossible", 10);
   printf("remixdb_put time_travel impossible %c\n", r?'T':'F');
 
+  // 删除键值对操作
   r = remixdb_del(ref, "time_travel", 11);
   printf("remixdb_del time_travel %c\n", r?'T':'F');
 
+  // 探测键是否存在（不返回值）
   r = remixdb_probe(ref, "time_travel", 11);
   printf("remixdb_probe time_travel %c\n", r?'T':'F');
 
-  u32 klen_out = 0;
-  char kbuf_out[8] = {};
-  u32 vlen_out = 0;
-  char vbuf_out[8] = {};
+  // 定义输出缓冲区
+  u32 klen_out = 0;    // 输出键长度
+  char kbuf_out[8] = {}; // 输出键缓冲区
+  u32 vlen_out = 0;    // 输出值长度
+  char vbuf_out[8] = {}; // 输出值缓冲区
+  
+  // 获取键值对操作
   r = remixdb_get(ref, "remix", 5, vbuf_out, &vlen_out);
   printf("remixdb_get remix %c %u %.*s\n", r?'T':'F', vlen_out, vlen_out, vbuf_out);
 
-  // prepare a few keys for range ops
+  // 为范围操作准备一些键值对
   remixdb_put(ref, "00", 2, "0_value", 7);
   remixdb_put(ref, "11", 2, "1_value", 7);
   remixdb_put(ref, "22", 2, "2_value", 7);
 
-  // Make all the data persistent in the log.
-  // Performing sync is expensive.
+  // 将所有数据持久化到日志中
+  // 执行同步操作开销较大
   remixdb_sync(ref);
 
-  // range operations
+  // 范围操作演示
   struct xdb_iter * const iter = remixdb_iter_create(ref);
 
-  printf("remixdb_iter_seek \"\" (zero-length string)\n");
+  printf("remixdb_iter_seek \"\" (零长度字符串)\n");
+  // 定位到第一个键（传入 NULL 和长度 0）
   remixdb_iter_seek(iter, NULL, 0); // seek to the first key
-  // You can actually insert an zero-size key to the store. (0 <= klen, klen+vlen <= 65500)
+  // 实际上你可以向存储中插入零长度的键 (0 <= klen, klen+vlen <= 65500)
 
-  while (remixdb_iter_valid(iter)) { // check whether the iter points to a valid KV pair
+  // 遍历所有键值对
+  while (remixdb_iter_valid(iter)) { // 检查迭代器是否指向有效的键值对
     r = remixdb_iter_peek(iter, kbuf_out, &klen_out, vbuf_out, &vlen_out);
     if (r) {
       printf("remixdb_iter_peek klen=%u key=%.*s vlen=%u value=%.*s\n",
@@ -70,21 +81,22 @@ main(int argc, char ** argv)
     } else {
       printf("ERROR!\n");
     }
-    remixdb_iter_skip1(iter);
+    remixdb_iter_skip1(iter); // 跳到下一个键值对
   }
 
-  // This is OPTIONAL!
-  // an iter can hold some (reader) locks.
-  // Other (writer) threads can be blocked by active iters.
-  // call iter_park to release those resources when you need to go idle
-  // don't need to call iter_park if you're actively using the iter
+  // 这是可选的操作！
+  // 迭代器可能持有一些（读者）锁
+  // 其他（写者）线程可能被活跃的迭代器阻塞
+  // 当你需要空闲时调用 iter_park 来释放这些资源
+  // 如果你正在积极使用迭代器，则不需要调用 iter_park
   remixdb_iter_park(iter);
-  usleep(10);
+  usleep(10); // 休眠 10 微秒
 
-  // after calling iter_park, you must perform a seek() to proceed with other operations.
-  printf("remixdb_iter_seek \"0\" (key_length=1)\n");
+  // 调用 iter_park 后，你必须执行 seek() 来继续其他操作
+  printf("remixdb_iter_seek \"0\" (键长度=1)\n");
   remixdb_iter_seek(iter, "0", 1);
-  // this time we don't want to copy the value
+  
+  // 这次我们不想复制值，只获取键
   r = remixdb_iter_peek(iter, kbuf_out, &klen_out, NULL, NULL);
   if (r){
     printf("remixdb_iter_peek klen=%u key=%.*s\n", klen_out, klen_out, kbuf_out);
@@ -92,12 +104,14 @@ main(int argc, char ** argv)
     printf("ERROR: iter_peek failed\n");
   }
 
+  // 销毁迭代器
   remixdb_iter_destroy(iter);
-  // there must be no active iters when we call unref()
+  
+  // 当我们调用 unref() 时，必须没有活跃的迭代器
   remixdb_unref(ref);
 
-  // close is not thread-safe
-  // other threads must have released their references when you call close()
+  // close 操作不是线程安全的
+  // 当你调用 close() 时，其他线程必须已经释放了它们的引用
   remixdb_close(xdb);
   return 0;
 }

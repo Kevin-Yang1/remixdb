@@ -107,11 +107,17 @@ RemixDB 默认使用 `liburing`（`io_uring`），因此需要 Linux 内核 >= 5
 
 `clang` 是默认编译器。它通常比 GCC 产生更快的代码。要使用 GCC：
 
+```bash
 $ make CCC=gcc
-强烈推荐 `jemalloc`。如果 jemalloc 可用且您更喜欢使用它，请在 `make` 时使用 `M=j`：
+```
 
+强烈推荐 `jemalloc`。如果 jemalloc 可用且您更喜欢使用它，请在 `make` 时使用 `M=j`
+
+```bash$
 $ make M=j
-类似地，可以使用 `M=t` 链接 `tcmalloc`。
+```
+
+ 类似地，可以使用 `M=t`链接`tcmalloc`。
 
 `xdbdemo.c` 包含使用 `remixdb_*` 函数的示例代码。
 这些函数提供了一个干净的编程接口，无需使用特殊的数据类型或结构。
@@ -120,8 +126,11 @@ $ make M=j
 
 编译并运行演示代码：
 
+```bash
 $ make M=j xdbdemo.out
 $ ./xdbdemo.out
+```
+
 ## xdbtest
 
 `xdbtest` 是一个使用 `remixdb_*` 函数的压力测试程序。
@@ -131,11 +140,17 @@ $ ./xdbdemo.out
 
 使用 4GB 块缓存、4GB MemTable 和具有 3200 万个 KV（2^25）的数据集运行，每轮执行 100 万次更新（2^20）：
 
+```bash
 $ make M=j xdbtest.out
 $ numactl -N 0 ./xdbtest.out /tmp/xdbtest 4096 4096 25 20 100
+```
+
 使用更小的内存占用运行（256MB 块缓存、256MB Memtable 和 100 万个 KV）：
 
+```bash
 $ numactl -N 0 ./xdbtest.out /tmp/xdbtest 256 256 20 20 100
+```
+
 此设置消耗高达 850MB 内存（RSS）和 /tmp/xdbtest 中的 1.8GB 空间。
 
 xdbtest.out 的首次运行应该总是显示 stale=0。
@@ -151,10 +166,16 @@ xdbtest.out 的首次运行应该总是显示 stale=0。
 
 使用小占用运行：
 
+```bash
 $ for i in $(seq 1 30); do ./xdbexit.out ./dbdir 256 256; done
+```
+
 在常规大小设置中运行：
 
+```
 $ for i in $(seq 1 30); do ./xdbexit.out ./dbdir 4096 4096; done
+```
+
 ## libremixdb.so
 
 要将 remixdb 用作共享库，运行 `make libremixdb.so` 和 `make install`。
