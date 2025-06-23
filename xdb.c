@@ -50,6 +50,7 @@ struct wal {
 // XDB 数据库主结构体
 struct xdb {
   // 第一行，确保高频访问成员在同一缓存行
+  // volatile 告诉编译器：这个变量的值可能在程序不知道的情况下被改变（例如多线程、硬件、信号处理等），所以每次都必须从内存中重新读取，不允许优化缓存
   struct mt_pair * volatile mt_view; // 指向当前活动的内存表视图 (mt_pair)
   u64 padding1[7];                  // 缓存行填充
 
@@ -109,6 +110,8 @@ struct xdb_iter {
 
 // misc {{{ // 杂项函数区域开始
 // 定义 WMT 和 IMT 使用的 kvmap API
+// wmt_api 只是一个用于调用的指向 kvmap_api_wormhole 的指针，实际实现在kvmap_api_wormhole中
+// 加 static 表示这个变量只在当前这个 .c 文件中可见和有效
 static const struct kvmap_api * wmt_api = &kvmap_api_wormhole; // 可写内存表使用 wormhole API
 static const struct kvmap_api * imt_api = &kvmap_api_whunsafe; // 不可变内存表使用 whunsafe API (通常更快，因其不可变)
 
@@ -877,7 +880,7 @@ xdb_open(const char * const dir,             // 数据库目录
     const char * const worker_cores)    // 压缩工作线程绑核配置字符串
 {
   mkdir(dir, 00755); // 创建数据库目录 (如果不存在)
-  struct xdb * const xdb = yalloc(sizeof(*xdb)); // 分配 XDB 主结构体内存
+  struct xdb * const xdb = yalloc(sizeof(*xdb)); // 分配 XDB 主结构体内存 64字节对齐 (典型缓存行大小)
   if (!xdb)
     return NULL;
 
@@ -1062,7 +1065,7 @@ struct xdb_mt_merge_ctx {
   static struct kv *
 xdb_mt_update_func(struct kv * const kv0, void * const priv)
 {
-  struct xdb_mt_merge_ctx * const ctx = priv;
+  struct xdb_mt_merge_ctx * const ctx = priv; // 合并上下文
   struct xdb * const xdb = ctx->xdb;
   const size_t newsz = sst_kv_size(ctx->newkv); // 新 KV 对象的大小
   const size_t oldsz = kv0 ? sst_kv_size(kv0) : 0; // 旧 KV 对象的大小 (如果存在)
@@ -1544,8 +1547,11 @@ remixdb_close(struct xdb * const xdb)
 
 // 插入或更新键值对
   bool
-remixdb_put(struct xdb_ref * const ref, const void * const kbuf, const u32 klen,
-    const void * const vbuf, const u32 vlen)
+remixdb_put(struct xdb_ref * const ref, // 指向 XDB 数据库引用的指针
+    const void * const kbuf, // 指向键数据缓冲区的指针
+    const u32 klen, // 键的长度
+    const void * const vbuf, // 指向值数据缓冲区的指针
+    const u32 vlen) // 值的长度
 {
   // TODO: 巨大的 KV 应该存储在单独的文件中，并在 xdb 中插入间接引用
   if ((klen + vlen) > 65500) // 限制键值总长度
@@ -1642,14 +1648,20 @@ remixdb_iter_create(struct xdb_ref * const ref)
 }
 
 // 定位迭代器
-  void
-remixdb_iter_seek(struct xdb_iter * const iter, const void * const kbuf, const u32 klen)
+void
+remixdb_iter_seek(struct xdb_iter * const iter,    // 指向 XDB 迭代器的指针
+                  const void * const kbuf,         // 指向要查找的键数据缓冲区的常量指针
+                  const u32 klen)                  // 键数据的长度（字节数）
 {
   struct kref kref;
-  kref_ref_hash32(&kref, kbuf, klen); // 从键缓冲区创建键引用
-  xdb_iter_seek(iter, &kref); // 调用底层定位函数
-}
+  kref_ref_hash32(&kref, kbuf, klen);          // 从键缓冲区创建键引用结构体
+                                                   // - 计算键的 CRC32 哈希值用于快速查找
+                                                   // - 创建内部使用的键引用格式
 
+  xdb_iter_seek(iter, &kref);                 // 调用底层 XDB 迭代器定位函数
+                                                   // - 实际执行定位操作
+                                                   // - 将迭代器移动到 >= 指定键的第一个位置
+}
 // 检查迭代器是否有效
   bool
 remixdb_iter_valid(struct xdb_iter * const iter)
